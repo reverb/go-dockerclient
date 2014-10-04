@@ -18,9 +18,15 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
 	"reflect"
 	"strconv"
 	"strings"
+
+	"github.com/docker/docker/api"
+	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/docker/docker/pkg/term"
+	"github.com/docker/docker/utils"
 )
 
 const userAgent = "go-dockerclient"
@@ -319,37 +325,24 @@ func (c *Client) stream(method, path string, setRawTerminal, rawJSONStream bool,
 		}
 		return newError(resp.StatusCode, body)
 	}
-	if resp.Header.Get("Content-Type") == "application/json" {
-		// if we want to get raw json stream, just copy it back to output
-		// without decoding it
-		if rawJSONStream {
-			_, err = io.Copy(stdout, resp.Body)
-			return err
+	ct := resp.Header.Get("Content-Type")
+	if api.MatchesContentType(ct, "application/json") || api.MatchesContentType(ct, "application/x-json-stream") {
+		var (
+			outFd         uintptr
+			isTerminalOut = false
+		)
+		if file, ok := stdout.(*os.File); ok {
+			outFd = file.Fd()
+			isTerminalOut = term.IsTerminal(outFd)
 		}
-		dec := json.NewDecoder(resp.Body)
-		for {
-			var m jsonMessage
-			if err := dec.Decode(&m); err == io.EOF {
-				break
-			} else if err != nil {
-				return err
-			}
-			if m.Stream != "" {
-				fmt.Fprint(stdout, m.Stream)
-			} else if m.Progress != "" {
-				fmt.Fprintf(stdout, "%s %s\r", m.Status, m.Progress)
-			} else if m.Error != "" {
-				return errors.New(m.Error)
-			}
-			if m.Status != "" {
-				fmt.Fprintln(stdout, m.Status)
-			}
-		}
-	} else {
+		return utils.DisplayJSONMessagesStream(resp.Body, stdout, outFd, isTerminalOut)
+	}
+
+	if stdout != nil || stderr != nil {
 		if setRawTerminal {
 			_, err = io.Copy(stdout, resp.Body)
 		} else {
-			_, err = stdCopy(stdout, stderr, resp.Body)
+			_, err = stdcopy.StdCopy(stdout, stderr, resp.Body)
 		}
 		return err
 	}
@@ -410,7 +403,7 @@ func (c *Client) hijack(method, path string, success chan struct{}, setRawTermin
 		if setRawTerminal {
 			_, err = io.Copy(stdout, br)
 		} else {
-			_, err = stdCopy(stdout, stderr, br)
+			_, err = stdcopy.StdCopy(stdout, stderr, br)
 		}
 		errs <- err
 	}()
