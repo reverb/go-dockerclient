@@ -339,6 +339,7 @@ func (c *Client) stream(method, path string, setRawTerminal, rawJSONStream bool,
 	}
 
 	if stdout != nil || stderr != nil {
+		// When TTY is ON, use regular copy
 		if setRawTerminal {
 			_, err = io.Copy(stdout, resp.Body)
 		} else {
