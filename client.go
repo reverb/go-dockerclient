@@ -14,16 +14,21 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"os"
+	gosignal "os/signal"
 	"reflect"
+	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/docker/docker/api"
+	"github.com/docker/docker/pkg/promise"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/docker/docker/pkg/term"
 	"github.com/docker/docker/utils"
@@ -350,6 +355,152 @@ func (c *Client) stream(method, path string, setRawTerminal, rawJSONStream bool,
 	return nil
 }
 
+func (c *Client) hijack2(method, path string, setRawTerminal bool, in io.Reader, stdout, stderr io.Writer, started chan io.Closer, data interface{}) error {
+	defer func() {
+		if started != nil {
+			close(started)
+		}
+	}()
+	if path != "/version" && !c.SkipServerVersionCheck && c.expectedApiVersion == nil {
+		err := c.checkApiVersion()
+		if err != nil {
+			return err
+		}
+	}
+
+	var params io.Reader
+	if data != nil {
+		buf, err := json.Marshal(data)
+		if err != nil {
+			return err
+		}
+		params = bytes.NewBuffer(buf)
+	}
+
+	if stdout == nil {
+		stdout = ioutil.Discard
+	}
+	if stderr == nil {
+		stderr = ioutil.Discard
+	}
+	req, err := http.NewRequest(method, c.getURL(path), params)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "text/plain")
+	protocol := c.endpointURL.Scheme
+	address := c.endpointURL.Path
+	if protocol != "unix" {
+		protocol = "tcp"
+		address = c.endpointURL.Host
+	}
+	req.Host = address
+
+	dial, err := net.Dial(protocol, address)
+	if err != nil {
+		return err
+	}
+	defer dial.Close()
+
+	clientconn := httputil.NewClientConn(dial, nil)
+	defer clientconn.Close()
+
+	res, err := clientconn.Do(req)
+	if err != nil && !strings.Contains(err.Error(), "connection closed") {
+		return err
+	}
+	if res.StatusCode != 200 {
+		body, _ := ioutil.ReadAll(res.Body)
+		return newError(res.StatusCode, body)
+	}
+
+	rwc, br := clientconn.Hijack()
+
+	defer rwc.Close()
+
+	if started != nil {
+		started <- rwc
+	}
+
+	var (
+		stdin        io.ReadCloser
+		isTerminalIn bool
+		inFd         uintptr
+	)
+
+	if in != nil {
+		if file, ok := in.(*os.File); ok {
+			inFd = file.Fd()
+			isTerminalIn = term.IsTerminal(inFd)
+			stdin = file
+		} else {
+			if closer, ok := in.(io.ReadCloser); ok {
+				stdin = closer
+			} else {
+				return fmt.Errorf("The input stream is not a closable stream, aborting")
+			}
+		}
+	}
+
+	var receiveStdout chan error
+	var oldState *term.State
+
+	if in != nil && setRawTerminal && isTerminalIn && os.Getenv("NORAW") == "" {
+		oldState, err = term.SetRawTerminal(inFd)
+		if err != nil {
+			return err
+		}
+		defer term.RestoreTerminal(inFd, oldState)
+	}
+	if stdout != nil || stderr != nil {
+		receiveStdout = promise.Go(func() (err error) {
+			defer func() {
+				if in != nil {
+					if setRawTerminal {
+						term.RestoreTerminal(inFd, oldState)
+					}
+					if runtime.GOOS != "darwin" {
+						stdin.Close()
+					}
+				}
+			}()
+
+			if setRawTerminal && stdout != nil {
+				_, err = io.Copy(stdout, br)
+			} else {
+				_, err = stdcopy.StdCopy(stdout, stderr, br)
+			}
+			return err
+		})
+	}
+
+	sendStdin := promise.Go(func() error {
+		if in != nil {
+			io.Copy(rwc, in)
+		}
+		if tcpc, ok := rwc.(*net.TCPConn); ok {
+			tcpc.CloseWrite()
+		} else if unixc, ok := rwc.(*net.UnixConn); ok {
+			unixc.CloseWrite()
+		}
+		return nil
+	})
+
+	if stdout != nil || stderr != nil {
+		if err := <-receiveStdout; err != nil {
+			return err
+		}
+	}
+
+	if !isTerminalIn {
+		if err := <-sendStdin; err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (c *Client) hijack(method, path string, success chan struct{}, setRawTerminal bool, in io.Reader, stderr, stdout io.Writer, data interface{}) error {
 	if path != "/version" && !c.SkipServerVersionCheck && c.expectedApiVersion == nil {
 		err := c.checkApiVersion()
@@ -536,4 +687,66 @@ func parseEndpoint(endpoint string) (*url.URL, error) {
 		return u, nil // we don't need port when using a unix socket
 	}
 	return nil, ErrInvalidEndpoint
+}
+
+func (cli *Client) resizeTty(id string, isExec, isTerminalOut bool, outFd uintptr) {
+	height, width := cli.getTtySize(isTerminalOut, outFd)
+	if height == 0 && width == 0 {
+		return
+	}
+	v := url.Values{}
+	v.Set("h", strconv.Itoa(height))
+	v.Set("w", strconv.Itoa(width))
+
+	path := ""
+	if !isExec {
+		path = "/containers/" + id + "/resize?"
+	} else {
+		path = "/exec/" + id + "/resize?"
+	}
+
+	if _, _, err := cli.do("POST", path+v.Encode(), nil); err != nil {
+		log.Println("Error resize: %s", err)
+	}
+}
+
+func (cli *Client) monitorTtySize(id string, isExec, isTerminalOut bool, outFd uintptr) error {
+	cli.resizeTty(id, isExec, isTerminalOut, outFd)
+
+	sigchan := make(chan os.Signal, 1)
+	gosignal.Notify(sigchan, syscall.SIGWINCH)
+	go func() {
+		for _ = range sigchan {
+			cli.resizeTty(id, isExec, isTerminalOut, outFd)
+		}
+	}()
+	return nil
+}
+
+func (cli *Client) getTtySize(isTerminalOut bool, outFd uintptr) (int, int) {
+	if !isTerminalOut {
+		return 0, 0
+	}
+	ws, err := term.GetWinsize(outFd)
+	if err != nil {
+		log.Println("Error getting size: %s", err)
+		if ws == nil {
+			return 0, 0
+		}
+	}
+	return int(ws.Height), int(ws.Width)
+}
+
+func readBody(stream io.ReadCloser, statusCode int, err error) ([]byte, int, error) {
+	if stream != nil {
+		defer stream.Close()
+	}
+	if err != nil {
+		return nil, statusCode, err
+	}
+	body, err := ioutil.ReadAll(stream)
+	if err != nil {
+		return nil, -1, err
+	}
+	return body, statusCode, nil
 }
