@@ -355,7 +355,7 @@ func (c *Client) stream(method, path string, setRawTerminal, rawJSONStream bool,
 	return nil
 }
 
-func (c *Client) hijack2(method, path string, setRawTerminal bool, in io.Reader, stdout, stderr io.Writer, started chan io.Closer, data interface{}) error {
+func (c *Client) hijack2(method, path string, setRawTerminal bool, dialer func(string, string) (net.Conn, error), in io.Reader, stdout, stderr io.Writer, started chan io.Closer, data interface{}) error {
 	defer func() {
 		if started != nil {
 			close(started)
@@ -395,8 +395,7 @@ func (c *Client) hijack2(method, path string, setRawTerminal bool, in io.Reader,
 		address = c.endpointURL.Host
 	}
 	req.Host = address
-
-	dial, err := net.Dial(protocol, address)
+	dial, err := dialer(protocol, address)
 	if err != nil {
 		return err
 	}

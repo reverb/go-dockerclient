@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"strings"
 
@@ -59,9 +60,10 @@ type ExecOptions struct {
 	Tty          bool
 	Command      []string `json:"Cmd"`
 	Container    string
-	OutputStream io.Writer `json:"-"`
-	ErrorStream  io.Writer `json:"-"`
-	InputStream  io.Reader `json:"-"`
+	OutputStream io.Writer                              `json:"-"`
+	ErrorStream  io.Writer                              `json:"-"`
+	InputStream  io.Reader                              `json:"-"`
+	Dialer       func(string, string) (net.Conn, error) `json:"-"`
 }
 
 func (c *Client) Exec(opts ExecOptions) error {
@@ -100,7 +102,7 @@ func (c *Client) Exec(opts ExecOptions) error {
 		if opts.Tty {
 			stderr = opts.OutputStream
 		}
-		return c.hijack2("POST", doPath, opts.Tty, opts.InputStream, opts.OutputStream, stderr, hijacked, opts)
+		return c.hijack2("POST", doPath, opts.Tty, opts.Dialer, opts.InputStream, opts.OutputStream, stderr, hijacked, opts)
 	})
 
 	select {
