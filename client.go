@@ -395,7 +395,11 @@ func (c *Client) hijack2(method, path string, setRawTerminal bool, dialer func(s
 		address = c.endpointURL.Host
 	}
 	req.Host = address
-	dial, err := dialer(protocol, address)
+	realDialer := dialer
+	if realDialer == nil {
+		realDialer = net.Dial
+	}
+	dial, err := realDialer(protocol, address)
 	if err != nil {
 		return err
 	}
