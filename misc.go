@@ -130,7 +130,7 @@ func (c *Client) Exec(opts ExecOptions) error {
 	}
 
 	if opts.Tty && isTerminalIn {
-		if err := c.monitorTtySize(id.Id, true, isTerminalOut, outFd); err != nil {
+		if err := c.MonitorTtySize(id.Id, true, isTerminalOut, outFd); err != nil {
 			fmt.Printf("Error monitoring TTY size: %s\n", err)
 		}
 	}

@@ -696,7 +696,7 @@ func (c *Client) resizeTty(id string, isExec, isTerminalOut bool, outFd uintptr)
 	}
 }
 
-func (c *Client) monitorTtySize(id string, isExec, isTerminalOut bool, outFd uintptr) error {
+func (c *Client) MonitorTtySize(id string, isExec, isTerminalOut bool, outFd uintptr) error {
 	c.resizeTty(id, isExec, isTerminalOut, outFd)
 
 	sigchan := make(chan os.Signal, 1)

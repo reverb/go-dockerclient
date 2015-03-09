@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -652,10 +653,13 @@ type AttachToContainerOptions struct {
 	//
 	// It must be an unbuffered channel. Using a buffered channel can lead
 	// to unexpected behavior.
-	Success chan struct{}
+	Success chan io.Closer
 
 	// Use raw terminal? Usually true when the container contains a TTY.
 	RawTerminal bool `qs:"-"`
+
+	// Dialer a function to use when dialing instead of net.Dial
+	Dialer func(string, string) (net.Conn, error) `qs:"-"`
 }
 
 // AttachToContainer attaches to a container, using the given options.
@@ -666,7 +670,7 @@ func (c *Client) AttachToContainer(opts AttachToContainerOptions) error {
 		return &NoSuchContainer{ID: opts.Container}
 	}
 	path := "/containers/" + opts.Container + "/attach?" + queryString(opts)
-	return c.hijack("POST", path, opts.Success, opts.RawTerminal, opts.InputStream, opts.ErrorStream, opts.OutputStream, nil)
+	return c.hijack2("POST", path, opts.RawTerminal, opts.Dialer, opts.InputStream, opts.OutputStream, opts.ErrorStream, opts.Success, nil)
 }
 
 // LogsOptions represents the set of options used when getting logs from a
