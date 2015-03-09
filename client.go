@@ -312,7 +312,7 @@ func (c *Client) do(method, path string, data interface{}, forceJSON bool) ([]by
 	if data != nil {
 		req.Header.Set("Content-Type", "application/json")
 	} else if method == "POST" {
-		req.Header.Set("Content-Type", "plain/text")
+		req.Header.Set("Content-Type", "text/plain")
 	}
 	var resp *http.Response
 	protocol := c.endpointURL.Scheme
@@ -365,7 +365,7 @@ func (c *Client) stream(method, path string, setRawTerminal, rawJSONStream bool,
 	}
 	req.Header.Set("User-Agent", userAgent)
 	if method == "POST" {
-		req.Header.Set("Content-Type", "plain/text")
+		req.Header.Set("Content-Type", "text/plain")
 	}
 	for key, val := range headers {
 		req.Header.Set(key, val)
@@ -484,7 +484,7 @@ func (c *Client) hijack(method, path string, success chan struct{}, setRawTermin
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "plain/text")
+	req.Header.Set("Content-Type", "text/plain")
 	protocol := c.endpointURL.Scheme
 	address := c.endpointURL.Path
 	if protocol != "unix" {
