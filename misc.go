@@ -20,7 +20,7 @@ import (
 //
 // See http://goo.gl/BOZrF5 for more details.
 func (c *Client) Version() (*Env, error) {
-	body, _, err := c.do("GET", "/version", nil)
+	body, _, err := c.do("GET", "/version", nil, false)
 	if err != nil {
 		return nil, err
 	}
@@ -35,7 +35,7 @@ func (c *Client) Version() (*Env, error) {
 //
 // See http://goo.gl/wmqZsW for more details.
 func (c *Client) Info() (*Env, error) {
-	body, _, err := c.do("GET", "/info", nil)
+	body, _, err := c.do("GET", "/info", nil, false)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +72,7 @@ func (c *Client) Exec(opts ExecOptions) error {
 	}
 	name := opts.Container
 	path := "/containers/" + name + "/exec"
-	body, _, err := c.do("POST", path, opts)
+	body, _, err := c.do("POST", path, opts, false)
 	if err != nil {
 		return err
 	}
