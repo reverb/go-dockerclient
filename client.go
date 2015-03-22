@@ -692,7 +692,7 @@ func (c *Client) resizeTty(id string, isExec, isTerminalOut bool, outFd uintptr)
 	}
 
 	if _, _, err := c.do("POST", path+v.Encode(), nil, false); err != nil {
-		log.Println("Error resize: %s", err)
+		log.Println("Error resize:", err)
 	}
 }
 
@@ -715,7 +715,7 @@ func (c *Client) getTtySize(isTerminalOut bool, outFd uintptr) (int, int) {
 	}
 	ws, err := term.GetWinsize(outFd)
 	if err != nil {
-		log.Println("Error getting size: %s", err)
+		log.Println("Error getting size:", err)
 		if ws == nil {
 			return 0, 0
 		}
