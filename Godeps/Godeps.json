@@ -1,5 +1,5 @@
 {
-	"ImportPath": "github.com/casualjim/go-dockerclient",
+	"ImportPath": "github.com/reverb/go-dockerclient",
 	"GoVersion": "go1.4.2",
 	"Packages": [
 		"./..."
@@ -7,8 +7,8 @@
 	"Deps": [
 		{
 			"ImportPath": "github.com/Sirupsen/logrus",
-			"Comment": "v0.6.5-6-g53adda1",
-			"Rev": "53adda1d3e4e795ef2afacebc29e37a513fc331c"
+			"Comment": "v0.7.3-2-g26709e2",
+			"Rev": "26709e2714106fb8ad40b773b711ebce25b78914"
 		},
 		{
 			"ImportPath": "github.com/docker/docker/dockerversion",
@@ -86,7 +86,7 @@
 		},
 		{
 			"ImportPath": "github.com/gorilla/mux",
-			"Rev": "8a875a034c69b940914d83ea03d3f1299b4d094b"
+			"Rev": "8096f47503459bcc74d1f4c487b7e6e42e5746b5"
 		}
 	]
 }
